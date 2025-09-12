@@ -109,7 +109,7 @@ void senha(){
       tone(buz, 500);
       delay(100);
       noTone(buz);
-      delay(500);
+      delay(500); //delay para dar tempo do usuario tirar o dedo do botao
       tempS=0;
       return;
     }
