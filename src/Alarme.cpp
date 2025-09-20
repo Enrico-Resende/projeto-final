@@ -21,10 +21,10 @@ const int pinled=10; //pin do LED
 const int db=50; //debounce
 const int da=10; //distância de ativação (cm)
 const int tminled=3000; //tempo minimo do LED ligado (ms)
+const int senhaC=13; //numero senha correta
 
 int lastdes=0; //variável estado bloqueado antiga
 int errcount=0; //contador de erros da senha
-int senhaC=13; //numero senha correta
 int inputS; //variável numero da senha
 int f; //frequência do buzzer
 int fa=3000; //frequência alarme
@@ -40,6 +40,7 @@ int c1; //variável de controle do erro ao setar alarme mas com 1 na frente
 int lcdOverride=0; //variável de controle do lcd
 int lastalarme=0; //variável estado alarme antigo
 int laston=0; //variável estado on antigo
+int lastInputS=0; //variável estado senha antigo
 unsigned long tempL=0; //tempo do LED
 unsigned long lastdbb=0; //tempo após o ultimo debounce do botão
 unsigned long lastdbs=0; //tempo apos o ultimo debounce da senha
@@ -95,12 +96,13 @@ void toggle(){  //transforma o botão em uma switch
 void led(){
   if (dist<=da && dist>0 && old_d>10){
     if (des==1){
-        if (leds==LOW){
+        if (tempL<=millis()-tminled && leds==LOW){
         leds=HIGH;
         tempL=millis();
       }
       else if(tempL<=millis()-tminled && leds==HIGH){
         leds=LOW;
+        tempL=millis();
       }
     }
     else{
@@ -113,15 +115,15 @@ void led(){
 
 
 void senha(){
-  if (digitalRead(ps)==LOW && blockTimer<=millis()-500){ //se o botao senha for pressionado e ja tiver passado 500ms do bloqueio (tempo do usuario tirar o dedo)
+  if (digitalRead(ps)==LOW && blockTimer<=millis()-500 && desTimer<=millis()-500){ //se o botao senha for pressionado e ja tiver passado 500ms do bloqueio (tempo do usuario tirar o dedo)
     if (senhaTimer==0){senhaTimer=millis();} 
-    if (inputS==senhaC && des==0 && millis()-lastdbs>db){
+    if (inputS==senhaC && des==0 && millis()-lastdbs>db && millis()-senhaTimer<=500){
       des=1;
       desTimer=millis();
       alarmeativo = false;
       errcount=0;
     } 
-    else if(inputS!=senhaC && des==0 && millis()-lastdbs>db && alarmeativo==false && c==0){ //se a senha estiver errada
+    if(inputS!=senhaC && des==0 && millis()-lastdbs>db && alarmeativo==false && c==0 && millis()-senhaTimer<=500){ //se a senha estiver errada
       errTimer=millis();
       errcount+=1; //incrementa o contador de erros
       if (errcount == 3) { //se errar 3 vezes, ativa o alarme
@@ -130,7 +132,7 @@ void senha(){
       }
       c=1;
     }
-    else if (des==1 && millis()-senhaTimer>=2000) {//se o botao senha for segurado por 2 segundos
+    if (des==1 && millis()-senhaTimer>=2000) {//se o botao senha for segurado por 2 segundos
       if(inputS==senhaC){
         errcount=0;
         des=0;
@@ -157,9 +159,9 @@ void beepHandler(){
   if (lastdes==0 && des==1 && on==1){ //se foi desbloqueado
     lcdOverride=1;
     lcd.clear();
-    lcd.setCursor(0, 0); // setta cursor pro começo do lcd
-    lcdTimer=millis();
+    lcd.setCursor(0, 0);
     lcd.print("Sist Desboqueado");
+    lcdTimer=millis();
     f=1000;
     noTone(buz);
     for(int i=0;i<3;i++){ //bipe de confirmação
@@ -174,9 +176,6 @@ void beepHandler(){
       f+=500;
     }
     noTone(buz);
-    while (lcdTimer>=millis()-2000){}
-    lcd.clear();
-    lcdOverride=0;
   }
 
 
@@ -196,9 +195,6 @@ void beepHandler(){
       blockTimer=millis();
     }
     noTone(buz);
-    while (lcdTimer>=millis()-2000){}
-    lcd.clear();
-    lcdOverride=0;
   }
 
 
@@ -207,14 +203,14 @@ void beepHandler(){
     lcdOverride=1;
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Senha incorreta.");
     lcdTimer=millis();
+    lcd.print("Senha incorreta.");
     for(int i=0;i<2;i++) {
-      while (errTimer>=millis()-200){ //bipe de erro
+      while (errTimer>=millis()-100){ //bipe de erro
         tone(buz, 500);
       }
       errTimer=millis();
-      while (errTimer>=millis()-100){
+      while (errTimer>=millis()-50){
         noTone(buz);
       }
       errTimer=millis();
@@ -222,8 +218,6 @@ void beepHandler(){
     noTone(buz);
     olderrcount=errcount;
     c1=0;
-    lcd.clear();
-    lcdOverride=0;
   }
 
 
@@ -238,19 +232,22 @@ void beepHandler(){
     lcdOverride=1;
     lcd.setCursor(0, 0);
     lcd.print("!ALARME ATIVADO!");
+    if (inputS<10 && lastInputS==10){
+      lcd.setCursor(8, 1);
+      lcd.print(" ");
+    }
     lcd.setCursor(0, 1);
     lcd.print("Senha: ");
     lcd.print(inputS);
+    lastInputS=inputS;
   }else if (lastalarme==true){ //se o alarme foi desativado
     noTone(buz);
     fa=3000;
-    lcd.clear();
-    lcdOverride=0;
   }
 
 
-  if (laston!=on){
-    if (on==1){
+  if (laston!=on && alarmeativo==false){ //se foi ligado ou desligado
+    if (on==1){ //bipe de olá e "ola" no lcd
       lcdOverride=1;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -266,8 +263,12 @@ void beepHandler(){
       while(onTimer>=millis()-200){}
       lcdOverride=0;
     }
-    if (on==0){
+    if (on==0){ //bipe de tchau
       lcd.clear();
+      lcdOverride=1;
+      lcd.setCursor(0, 0);
+      lcdTimer=millis();
+      lcd.print("Tchau!");
       tone(buz, 1500);
       while(onTimer>=millis()-200){}
       onTimer=millis();
@@ -277,13 +278,18 @@ void beepHandler(){
     }
   }
   laston=on;
+
+  if (lcdTimer<=millis()-2000 && lcdTimer>=millis()-2100){ //reseta o lcd após 2 segundos.
+    lcd.clear();
+    lcdOverride=0;
+  }
 }
 
 
 
 void loop() {
   dist=sonar.measureDistanceCm(); //define a variável d como sitancia que o sensor lê
-  inputS=map(analogRead(pot), 0, 1023, 0, 20); //lê o potenciometro e mapeia para 0-100
+  inputS=map(analogRead(pot), 0, 1023, 1, 21); //lê o potenciometro e mapeia para 1-20
   toggle();
   if (on==1){
     senha(); //quando senha correta desbloqueia
@@ -311,14 +317,19 @@ void loop() {
     if (laston!=on){
       lcd.clear();
     }
-    lcd.setCursor(0, 0);
+    if (inputS<10 && lastInputS==10){
+      lcd.setCursor(8, 1);
+      lcd.print(" ");
+    }
+    lcd.setCursor(0, 1);
     lcd.print("Senha: ");
     lcd.print(inputS);
-    lcd.setCursor(0, 1); 
+    lcd.setCursor(0, 0); 
     if (des==1){
       lcd.print("Desbloqueado");
     } else {
       lcd.print("Bloqueado");
     }
+    lastInputS=inputS;
   }
 }
