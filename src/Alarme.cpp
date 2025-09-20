@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <HCSR04.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
 
 
 
@@ -25,7 +27,7 @@ int errcount=0; //contador de erros da senha
 int senhaC=13; //numero senha correta
 int inputS; //variável numero da senha
 int f; //frequência do buzzer
-int fa=2000; //frequência alarme
+int fa=3000; //frequência alarme
 int on=0; //variável ligado/desligado
 int leds=LOW; //estado do LED
 int old_on=HIGH; //variável estado antigo do botão
@@ -35,7 +37,9 @@ int old_d; //variável distância antiga
 int olderrcount=0; //variável contador de erros antigo
 int c; //variável de controle do erro ao setar alarme
 int c1; //variável de controle do erro ao setar alarme mas com 1 na frente
-unsigned long senhaTimer=0; //tempo decorrido apos a senha
+int lcdOverride=0; //variável de controle do lcd
+int lastalarme=0; //variável estado alarme antigo
+int laston=0; //variável estado on antigo
 unsigned long tempL=0; //tempo do LED
 unsigned long lastdbb=0; //tempo após o ultimo debounce do botão
 unsigned long lastdbs=0; //tempo apos o ultimo debounce da senha
@@ -45,9 +49,12 @@ bool alarmeativo=false; //estado do alarme
 unsigned long desTimer=0; //tempo desbloqueado
 unsigned long errTimer=0; //tempo de erro
 unsigned long blockTimer=0; //tempo do bloqueio
+unsigned long onTimer=0; //tempo do botao on
+unsigned long senhaTimer=0; //tempo decorrido apos a senha
+unsigned long lcdTimer=0; //timer do lcd
 
 UltraSonicDistanceSensor sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); //define o sensor
-
+LiquidCrystal_I2C lcd(0x27, 20, 4);  //define o LCD
 
 
 void setup(){  //define pinModes e começa o serial
@@ -55,6 +62,13 @@ void setup(){  //define pinModes e começa o serial
   pinMode(ps, INPUT_PULLUP);
   pinMode(pinled, OUTPUT);
   pinMode(but, INPUT_PULLUP);
+
+  Wire.begin();
+
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
   Serial.begin(9600);
 }
 
@@ -65,6 +79,7 @@ void toggle(){  //transforma o botão em uma switch
     if (on==1){
       on=0;
       leds=LOW;
+      des=0;
     }
     else{
       on=1;
@@ -72,6 +87,7 @@ void toggle(){  //transforma o botão em uma switch
     lastdbb=millis();
   }
   old_on=digitalRead(but);
+  onTimer=millis();
 }
 
 
@@ -130,15 +146,22 @@ void senha(){
 }else{
   senhaTimer=0;
   c=0;
+  lastdes=des;
+  lastalarme=alarmeativo;
 }
 }
 
 
 
 void beepHandler(){
-  if (lastdes==0 && des==1){  //se foi desbloqueado
+  if (lastdes==0 && des==1 && on==1){ //se foi desbloqueado
+    lcdOverride=1;
+    lcd.clear();
+    lcd.setCursor(0, 0); // setta cursor pro começo do lcd
+    lcdTimer=millis();
+    lcd.print("Sist Desboqueado");
     f=1000;
-    fa=2000;
+    noTone(buz);
     for(int i=0;i<3;i++){ //bipe de confirmação
       while (desTimer>=millis()-50){
         tone(buz, f);
@@ -151,32 +174,47 @@ void beepHandler(){
       f+=500;
     }
     noTone(buz);
-    }
+    while (lcdTimer>=millis()-2000){}
+    lcd.clear();
+    lcdOverride=0;
+  }
 
 
 
-  if(lastdes==1 && des==0){ //se foi bloqueado
-    fa=2000;
+  if(lastdes==1 && des==0 && on==1){ //se foi bloqueado
+    lcdOverride=1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcdTimer=millis();
+    lcd.print("Sist Bloqueado");
     f=2000;
+    noTone(buz);
     for(int i=0;i<20;i++){ //bipe de bloqueio
       tone(buz, f);
-      while(blockTimer>=millis()-10){} //equivalente a delay() sem travar o loop
+      while(blockTimer>=millis()-10){}
       f+=50;
       blockTimer=millis();
     }
     noTone(buz);
-    blockTimer=millis();
-    }
+    while (lcdTimer>=millis()-2000){}
+    lcd.clear();
+    lcdOverride=0;
+  }
 
 
 
   if ((olderrcount!=errcount && errcount!=0) or (c1==1)){  //se houve erro na senha ou erro ao settar alarme
+    lcdOverride=1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Senha incorreta.");
+    lcdTimer=millis();
     for(int i=0;i<2;i++) {
-      while (errTimer>=millis()-100){ //bipe de erro
+      while (errTimer>=millis()-200){ //bipe de erro
         tone(buz, 500);
       }
       errTimer=millis();
-      while (errTimer>=millis()-50){
+      while (errTimer>=millis()-100){
         noTone(buz);
       }
       errTimer=millis();
@@ -184,6 +222,8 @@ void beepHandler(){
     noTone(buz);
     olderrcount=errcount;
     c1=0;
+    lcd.clear();
+    lcdOverride=0;
   }
 
 
@@ -191,14 +231,52 @@ void beepHandler(){
   if (alarmeativo==true){ //se o alarme estiver ativo
     tone(buz, fa);
     fa += 200;
-    if (fa > 3000){
-      fa = 2000;
+    if (fa > 4000){
+      fa = 3000;
     }
     leds=LOW; //desliga o LED
-  }else{
+    lcdOverride=1;
+    lcd.setCursor(0, 0);
+    lcd.print("!ALARME ATIVADO!");
+    lcd.setCursor(0, 1);
+    lcd.print("Senha: ");
+    lcd.print(inputS);
+  }else if (lastalarme==true){ //se o alarme foi desativado
     noTone(buz);
+    fa=3000;
+    lcd.clear();
+    lcdOverride=0;
   }
-  lastdes=des;
+
+
+  if (laston!=on){
+    if (on==1){
+      lcdOverride=1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcdTimer=millis();
+      lcd.print("Ola!");
+      tone(buz, 1000);
+      while(onTimer>=millis()-200){}
+      tone(buz, 1500);
+      onTimer=millis();
+      while(onTimer>=millis()-400){}
+      noTone(buz);
+      onTimer=millis();
+      while(onTimer>=millis()-200){}
+      lcdOverride=0;
+    }
+    if (on==0){
+      lcd.clear();
+      tone(buz, 1500);
+      while(onTimer>=millis()-200){}
+      onTimer=millis();
+      tone(buz, 1000);
+      while(onTimer>=millis()-400){}
+      noTone(buz);
+    }
+  }
+  laston=on;
 }
 
 
@@ -211,12 +289,11 @@ void loop() {
     senha(); //quando senha correta desbloqueia
     led(); //liga o LED com logica de toggle quando o sensor lê uma distancia menor que a variavel "da" em cm
   }
-  beepHandler(); //trata os bipes
+  beepHandler(); //trata dos bipes
   digitalWrite(pinled, leds); //liga o LED dependendo da variável do estado dele
+
   //printa no terminal a distancia, estado do sistema, estado do LED, estado do alarme e estado da senha
-  Serial.print("Dist: ");
-  Serial.print(dist);
-  Serial.print("cm\tOn: ");
+  Serial.print("\tOn: ");
   Serial.print(on);
   Serial.print("\tLED: ");
   Serial.print(leds);
@@ -227,7 +304,21 @@ void loop() {
   Serial.print("\tSenha: ");
   Serial.print(inputS);
   Serial.print("\tErros: ");
-  Serial.print(errcount);
-  Serial.print("\tc: ");
-  Serial.println(c);
+  Serial.println(errcount);
+
+  //printa no LCD a senha atual e o estado do sistema
+  if (lcdOverride==0 && on==1){
+    if (laston!=on){
+      lcd.clear();
+    }
+    lcd.setCursor(0, 0);
+    lcd.print("Senha: ");
+    lcd.print(inputS);
+    lcd.setCursor(0, 1); 
+    if (des==1){
+      lcd.print("Desbloqueado");
+    } else {
+      lcd.print("Bloqueado");
+    }
+  }
 }
