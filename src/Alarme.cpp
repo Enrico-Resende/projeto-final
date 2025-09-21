@@ -54,6 +54,8 @@ unsigned long onTimer=0; //tempo do botao on
 unsigned long senhaTimer=0; //tempo decorrido apos a senha
 unsigned long lcdTimer=0; //timer do lcd
 
+
+
 UltraSonicDistanceSensor sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); //define o sensor
 LiquidCrystal_I2C lcd(0x27, 20, 4);  //define o LCD
 
@@ -94,9 +96,9 @@ void toggle(){  //transforma o botão em uma switch
 
 
 void led(){
-  if (dist<=da && dist>0 && old_d>10){
+  if (dist<=da && dist>0 && (old_d>10 or old_d==-1)){ //usa o sensor como "switch"
     if (des==1){
-        if (tempL<=millis()-tminled && leds==LOW){
+        if (tempL<=millis()-tminled && leds==LOW){ //garante temp. minimo led
         leds=HIGH;
         tempL=millis();
       }
@@ -115,7 +117,7 @@ void led(){
 
 
 void senha(){
-  if (digitalRead(ps)==LOW && blockTimer<=millis()-500 && desTimer<=millis()-500){ //se o botao senha for pressionado e ja tiver passado 500ms do bloqueio (tempo do usuario tirar o dedo)
+  if (digitalRead(ps)==LOW && blockTimer<=millis()-1000 && desTimer<=millis()-1000){ //se o botao senha for pressionado e ja tiver passado 700ms do bloqueio (tempo do usuario tirar o dedo)
     if (senhaTimer==0){senhaTimer=millis();} 
     if (inputS==senhaC && des==0 && millis()-lastdbs>db && millis()-senhaTimer<=500){
       des=1;
@@ -123,7 +125,7 @@ void senha(){
       alarmeativo = false;
       errcount=0;
     } 
-    if(inputS!=senhaC && des==0 && millis()-lastdbs>db && alarmeativo==false && c==0 && millis()-senhaTimer<=500){ //se a senha estiver errada
+    if(inputS!=senhaC && des==0 && millis()-lastdbs>db && alarmeativo==false && c==0 && millis()-senhaTimer<=10){ //se a senha estiver errada
       errTimer=millis();
       errcount+=1; //incrementa o contador de erros
       if (errcount == 3) { //se errar 3 vezes, ativa o alarme
@@ -132,7 +134,7 @@ void senha(){
       }
       c=1;
     }
-    if (des==1 && millis()-senhaTimer>=2000) {//se o botao senha for segurado por 2 segundos
+    if (des==1 && millis()-senhaTimer>=2000 && millis()-senhaTimer<=2100) {//se o botao senha for segurado por 2 segundos
       if(inputS==senhaC){
         errcount=0;
         des=0;
@@ -145,12 +147,12 @@ void senha(){
       }
     }
     lastdbs=millis();
-}else{
-  senhaTimer=0;
-  c=0;
-  lastdes=des;
-  lastalarme=alarmeativo;
-}
+  }else{
+    senhaTimer=0;
+    c=0;
+    lastdes=des;
+    lastalarme=alarmeativo;
+  }
 }
 
 
@@ -254,26 +256,23 @@ void beepHandler(){
       lcdTimer=millis();
       lcd.print("Ola!");
       tone(buz, 1000);
-      while(onTimer>=millis()-200){}
+      delay(200);
       tone(buz, 1500);
-      onTimer=millis();
-      while(onTimer>=millis()-400){}
+      delay(400);
       noTone(buz);
-      onTimer=millis();
-      while(onTimer>=millis()-200){}
+      delay(200);
       lcdOverride=0;
     }
-    if (on==0){ //bipe de tchau
+    if (on==0){ //bipe de tchau e "tchau" no lcd
       lcd.clear();
       lcdOverride=1;
       lcd.setCursor(0, 0);
       lcdTimer=millis();
       lcd.print("Tchau!");
       tone(buz, 1500);
-      while(onTimer>=millis()-200){}
-      onTimer=millis();
+      delay(200);
       tone(buz, 1000);
-      while(onTimer>=millis()-400){}
+      delay(400);
       noTone(buz);
     }
   }
@@ -288,17 +287,20 @@ void beepHandler(){
 
 
 void loop() {
-  dist=sonar.measureDistanceCm(); //define a variável d como sitancia que o sensor lê
-  inputS=map(analogRead(pot), 0, 1023, 1, 21); //lê o potenciometro e mapeia para 1-20
+  //define a variável d como sitancia que o sensor lê
+  dist=sonar.measureDistanceCm();
+
+  //lê o potenciometro e mapeia para 1-20
+  inputS=map(analogRead(pot), 0, 1023, 1, 21); 
   toggle();
   if (on==1){
-    senha(); //quando senha correta desbloqueia
-    led(); //liga o LED com logica de toggle quando o sensor lê uma distancia menor que a variavel "da" em cm
+    senha();
+    led();
   }
-  beepHandler(); //trata dos bipes
-  digitalWrite(pinled, leds); //liga o LED dependendo da variável do estado dele
+  beepHandler();
+  digitalWrite(pinled, leds); //controla LED
 
-  //printa no terminal a distancia, estado do sistema, estado do LED, estado do alarme e estado da senha
+  //printa no terminal
   Serial.print("\tOn: ");
   Serial.print(on);
   Serial.print("\tLED: ");
@@ -312,7 +314,7 @@ void loop() {
   Serial.print("\tErros: ");
   Serial.println(errcount);
 
-  //printa no LCD a senha atual e o estado do sistema
+  //printa no LCD input estado
   if (lcdOverride==0 && on==1){
     if (laston!=on){
       lcd.clear();
